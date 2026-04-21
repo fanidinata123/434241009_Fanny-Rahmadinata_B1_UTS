@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import '../entities/ticket_entity.dart';
 import '../repositories/ticket_repository.dart';
 
@@ -11,7 +10,7 @@ class CreateTicketUseCase {
     required String description,
     required String priority,
     String? categoryId,
-    List<MultipartFile>? attachments,
+    List<dynamic>? attachments,
   }) {
     return _repository.createTicket(
       title: title,

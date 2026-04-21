@@ -1,6 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import 'package:dio/dio.dart';
 import '../../data/repositories/ticket_repository_impl.dart';
 import '../../domain/entities/ticket_entity.dart';
 
@@ -19,7 +18,7 @@ class LoadTicketDetail extends TicketEvent {
 class CreateTicket extends TicketEvent {
   final String title, description, priority;
   final String? categoryId;
-  final List<MultipartFile>? attachments;
+  final List<dynamic>? attachments;
   CreateTicket({
     required this.title,
     required this.description,

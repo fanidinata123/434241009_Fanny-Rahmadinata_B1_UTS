@@ -1,7 +1,7 @@
 import '../../domain/entities/ticket_entity.dart';
 
 class TicketModel extends TicketEntity {
-  const TicketModel({
+  TicketModel({
     required super.id,
     required super.title,
     required super.description,
@@ -23,7 +23,7 @@ class TicketModel extends TicketEntity {
       userId: j['user_id'],
       assignedTo: j['assigned_to'],
       status: TicketStatus.values.firstWhere(
-        (s) => s.name == (j['status'] as String).replaceAll('_', ''),
+        (s) => s.name == j['status'],
         orElse: () => TicketStatus.open,
       ),
       priority: TicketPriority.values.firstWhere(
@@ -36,18 +36,4 @@ class TicketModel extends TicketEntity {
       updatedAt: DateTime.parse(j['updated_at']),
     );
   }
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'description': description,
-        'user_id': userId,
-        'assigned_to': assignedTo,
-        'status': status.name,
-        'priority': priority.name,
-        'category_id': categoryId,
-        'attachments': attachmentUrls,
-        'created_at': createdAt.toIso8601String(),
-        'updated_at': updatedAt.toIso8601String(),
-      };
 }

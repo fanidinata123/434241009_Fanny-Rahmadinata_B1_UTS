@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import '../datasources/ticket_remote_datasource.dart';
 import '../../domain/entities/ticket_entity.dart';
 
@@ -6,8 +5,10 @@ class TicketRepositoryImpl {
   final TicketRemoteDataSource _remote;
   TicketRepositoryImpl(this._remote);
 
-  Future<List<TicketEntity>> getTickets({String? status, String? search}) =>
-      _remote.getTickets(status: status, search: search);
+  Future<List<TicketEntity>> getTickets({String? status, String? search}) async {
+    final result = await _remote.getTickets(status: status, search: search);
+    return result.cast<TicketEntity>();
+  }
 
   Future<TicketEntity> getTicketById(String id) =>
       _remote.getTicketById(id);
@@ -17,14 +18,13 @@ class TicketRepositoryImpl {
     required String description,
     required String priority,
     String? categoryId,
-    List<MultipartFile>? attachments,
+    List<dynamic>? attachments,
   }) =>
       _remote.createTicket(
         title: title,
         description: description,
         priority: priority,
         categoryId: categoryId,
-        attachments: attachments,
       );
 
   Future<TicketEntity> updateStatus(String id, String status) =>

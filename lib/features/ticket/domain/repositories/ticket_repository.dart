@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import '../entities/ticket_entity.dart';
 
 abstract class TicketRepository {
@@ -9,7 +8,7 @@ abstract class TicketRepository {
     required String description,
     required String priority,
     String? categoryId,
-    List<MultipartFile>? attachments,
+    List<dynamic>? attachments,
   });
   Future<TicketEntity> updateStatus(String id, String status);
   Future<TicketEntity> assignTicket(String id, String assigneeId);

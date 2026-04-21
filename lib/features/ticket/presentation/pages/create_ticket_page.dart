@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:dio/dio.dart';
 import 'dart:io';
 import '../bloc/ticket_bloc.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -95,23 +94,12 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    List<MultipartFile>? attachments;
-    if (_pickedFiles.isNotEmpty) {
-      attachments = await Future.wait(
-        _pickedFiles.map(
-          (f) => MultipartFile.fromFile(f.path,
-              filename: f.path.split('/').last),
-        ),
-      );
-    }
-
     if (!mounted) return;
     context.read<TicketBloc>().add(CreateTicket(
           title: _titleCtrl.text.trim(),
           description: _descCtrl.text.trim(),
           priority: _selectedPriority,
           categoryId: _selectedCategory,
-          attachments: attachments,
         ));
   }
 
