@@ -5,10 +5,21 @@ class TicketRepositoryImpl {
   final TicketRemoteDataSource _remote;
   TicketRepositoryImpl(this._remote);
 
-  Future<List<TicketEntity>> getTickets({String? status, String? search}) async {
-    final result = await _remote.getTickets(status: status, search: search);
+  Future<List<TicketEntity>> getTickets({
+    String? status,
+    String? search,
+    String? assignedTo,
+  }) async {
+    final result = await _remote.getTickets(
+      status: status,
+      search: search,
+      assignedTo: assignedTo,
+    );
     return result.cast<TicketEntity>();
   }
+
+  Future<List<Map<String, dynamic>>> getHelpdeskList() =>
+      _remote.getHelpdeskList();
 
   Future<TicketEntity> getTicketById(String id) =>
       _remote.getTicketById(id);
@@ -35,4 +46,8 @@ class TicketRepositoryImpl {
 
   Future<void> addComment(String ticketId, String content) =>
       _remote.addComment(ticketId, content);
+
+  Future<void> deleteTicket(String id) => _remote.deleteTicket(id);
+
+  Future<Map<String, int>> getTicketStats() => _remote.getTicketStats();
 }

@@ -30,5 +30,8 @@ class AuthRepositoryImpl {
 
   Future<void> resetPassword(String email) => _remote.resetPassword(email);
 
+  Future<void> updatePassword(String newPassword) =>
+      _remote.updatePassword(newPassword);
+
   Future<UserEntity> getProfile() => _remote.getProfile();
 }

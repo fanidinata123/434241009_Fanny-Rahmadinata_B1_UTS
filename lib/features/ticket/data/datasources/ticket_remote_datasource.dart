@@ -1,119 +1,71 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/ticket_model.dart';
 import '../../domain/entities/ticket_entity.dart';
 
 class TicketRemoteDataSource {
-  TicketRemoteDataSource(dynamic dio);
+  final _supabase = Supabase.instance.client;
 
-  static final List<TicketModel> _tickets = [
-    TicketModel(
-      id: 'TKT-001',
-      title: 'Komputer tidak bisa menyala',
-      description: 'Komputer di ruang lab A-301 tidak bisa menyala sejak pagi. Sudah dicoba menekan tombol power berkali-kali tapi tidak ada respons sama sekali.',
-      userId: 'u001',
-      assignedTo: 'u004',
-      status: TicketStatus.inProgress,
-      priority: TicketPriority.high,
-      categoryId: 'Hardware',
-      attachmentUrls: const [],
-      createdAt: DateTime(2026, 4, 18, 8, 0),
-      updatedAt: DateTime(2026, 4, 18, 13, 0),
-    ),
-    TicketModel(
-      id: 'TKT-002',
-      title: 'Email kampus tidak bisa login',
-      description: 'Tidak bisa masuk ke email kampus sejak kemarin. Muncul pesan error "Invalid credentials" padahal password sudah benar dan belum pernah diganti.',
-      userId: 'u002',
-      assignedTo: null,
-      status: TicketStatus.open,
-      priority: TicketPriority.medium,
-      categoryId: 'Akun & Akses',
-      attachmentUrls: const [],
-      createdAt: DateTime(2026, 4, 19, 9, 0),
-      updatedAt: DateTime(2026, 4, 19, 9, 0),
-    ),
-    TicketModel(
-      id: 'TKT-003',
-      title: 'Printer offline tidak bisa print',
-      description: 'Printer di ruang TU menampilkan status offline meski sudah dinyalakan dan kabel sudah tersambung ke komputer dengan benar.',
-      userId: 'u003',
-      assignedTo: 'u004',
-      status: TicketStatus.resolved,
-      priority: TicketPriority.low,
-      categoryId: 'Hardware',
-      attachmentUrls: const [],
-      createdAt: DateTime(2026, 4, 15, 10, 0),
-      updatedAt: DateTime(2026, 4, 17, 14, 0),
-    ),
-    TicketModel(
-      id: 'TKT-004',
-      title: 'Koneksi WiFi sangat lambat di lantai 2',
-      description: 'WiFi di gedung B lantai 2 sangat lambat bahkan sering putus total. Sangat mengganggu kegiatan perkuliahan online dan akses e-learning.',
-      userId: 'u001',
-      assignedTo: 'u005',
-      status: TicketStatus.closed,
-      priority: TicketPriority.medium,
-      categoryId: 'Jaringan',
-      attachmentUrls: const [],
-      createdAt: DateTime(2026, 4, 10, 7, 30),
-      updatedAt: DateTime(2026, 4, 13, 16, 0),
-    ),
-    TicketModel(
-      id: 'TKT-005',
-      title: 'Software SPSS license expired',
-      description: 'Aplikasi SPSS di lab statistik error saat dibuka. Muncul pesan "License has expired". Padahal besok ada praktikum yang membutuhkan SPSS.',
-      userId: 'u002',
-      assignedTo: null,
-      status: TicketStatus.open,
-      priority: TicketPriority.critical,
-      categoryId: 'Software',
-      attachmentUrls: const [],
-      createdAt: DateTime(2026, 4, 20, 6, 0),
-      updatedAt: DateTime(2026, 4, 20, 6, 0),
-    ),
-    TicketModel(
-      id: 'TKT-006',
-      title: 'Proyektor ruang kuliah B-201 rusak',
-      description: 'Proyektor di ruang B-201 tidak menampilkan gambar. Lampu indikator berkedip merah. Sudah dicoba restart tapi tetap tidak mau menyala normal.',
-      userId: 'u003',
-      assignedTo: 'u005',
-      status: TicketStatus.inProgress,
-      priority: TicketPriority.high,
-      categoryId: 'Hardware',
-      attachmentUrls: const [],
-      createdAt: DateTime(2026, 4, 20, 7, 0),
-      updatedAt: DateTime(2026, 4, 20, 8, 0),
-    ),
-  ];
+  // Konversi status dari Dart enum-name (camelCase) -> nilai enum DB (snake_case)
+  String _statusToDb(String status) {
+    switch (status) {
+      case 'inProgress':
+        return 'in_progress';
+      default:
+        return status; // open, resolved, closed sudah sama
+    }
+  }
 
-  Future<List<TicketModel>> getTickets({String? status, String? search}) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    var result = List<TicketModel>.from(_tickets);
+  Future<List<TicketModel>> getTickets({
+    String? status,
+    String? search,
+    String? assignedTo,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final role = prefs.getString('user_role') ?? 'user';
+    final userId = prefs.getString('user_id') ?? '';
+
+    var query = _supabase.from('tickets').select();
 
     if (status != null && status.isNotEmpty) {
-      final s = TicketStatus.values.firstWhere(
-        (e) => e.name == status,
-        orElse: () => TicketStatus.open,
-      );
-      result = result.where((t) => t.status == s).toList();
+      query = query.eq('status', _statusToDb(status));
     }
 
-    if (search != null && search.isNotEmpty) {
-      final q = search.toLowerCase();
-      result = result.where((t) =>
-        t.title.toLowerCase().contains(q) ||
-        t.description.toLowerCase().contains(q)
-      ).toList();
+    // Sesuai SRS: helpdesk hanya boleh melihat tiket yang
+    // ditugaskan (assigned) ke dirinya sendiri. Admin tetap
+    // melihat semua tiket, dan user (RLS) otomatis hanya melihat
+    // tiketnya sendiri.
+    if (role == 'helpdesk') {
+      query = query.eq('assigned_to', userId);
+    } else if (role == 'admin' && assignedTo != null && assignedTo.isNotEmpty) {
+      // Admin bisa memfilter tiket berdasarkan helpdesk tertentu
+      // yang ditugaskan (FR-007.3).
+      query = query.eq('assigned_to', assignedTo);
     }
 
-    return result;
+    final data = await query.order('created_at', ascending: false);
+    return (data as List).map((e) => TicketModel.fromJson(e)).toList();
+  }
+
+  /// Mengambil daftar helpdesk aktif, digunakan oleh admin untuk
+  /// memfilter tiket berdasarkan helpdesk yang ditugaskan.
+  Future<List<Map<String, dynamic>>> getHelpdeskList() async {
+    final data = await _supabase
+        .from('users')
+        .select('id, name')
+        .eq('role', 'helpdesk')
+        .eq('is_active', true)
+        .order('name');
+    return List<Map<String, dynamic>>.from(data as List);
   }
 
   Future<TicketModel> getTicketById(String id) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    return _tickets.firstWhere(
-      (t) => t.id == id,
-      orElse: () => _tickets.first,
-    );
+    final data = await _supabase
+        .from('tickets')
+        .select()
+        .eq('id', id)
+        .single();
+    return TicketModel.fromJson(data);
   }
 
   Future<TicketModel> createTicket({
@@ -122,75 +74,112 @@ class TicketRemoteDataSource {
     required String priority,
     String? categoryId,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    final newTicket = TicketModel(
-      id: 'TKT-00${_tickets.length + 1}',
-      title: title,
-      description: description,
-      userId: 'u001',
-      assignedTo: null,
-      status: TicketStatus.open,
-      priority: TicketPriority.values.firstWhere(
-        (p) => p.name == priority,
-        orElse: () => TicketPriority.low,
-      ),
-      categoryId: categoryId,
-      attachmentUrls: const [],
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
-    _tickets.insert(0, newTicket);
-    return newTicket;
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id') ?? '';
+
+    final data = await _supabase.from('tickets').insert({
+      'title': title,
+      'description': description,
+      'priority': priority,
+      'status': 'open',
+      'user_id': userId,
+      if (categoryId != null) 'category_id': categoryId,
+    }).select().single();
+
+    return TicketModel.fromJson(data);
   }
 
   Future<TicketModel> updateStatus(String id, String status) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final idx = _tickets.indexWhere((t) => t.id == id);
-    if (idx == -1) throw Exception('Tiket tidak ditemukan');
-    final old = _tickets[idx];
-    final updated = TicketModel(
-      id: old.id,
-      title: old.title,
-      description: old.description,
-      userId: old.userId,
-      assignedTo: old.assignedTo,
-      status: TicketStatus.values.firstWhere(
-        (s) => s.name == status,
-        orElse: () => TicketStatus.open,
-      ),
-      priority: old.priority,
-      categoryId: old.categoryId,
-      attachmentUrls: old.attachmentUrls,
-      createdAt: old.createdAt,
-      updatedAt: DateTime.now(),
-    );
-    _tickets[idx] = updated;
-    return updated;
+    final data = await _supabase
+        .from('tickets')
+        .update({
+          'status': _statusToDb(status),
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', id)
+        .select()
+        .single();
+    return TicketModel.fromJson(data);
   }
 
   Future<TicketModel> assignTicket(String id, String assigneeId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final idx = _tickets.indexWhere((t) => t.id == id);
-    if (idx == -1) throw Exception('Tiket tidak ditemukan');
-    final old = _tickets[idx];
-    final updated = TicketModel(
-      id: old.id,
-      title: old.title,
-      description: old.description,
-      userId: old.userId,
-      assignedTo: assigneeId,
-      status: TicketStatus.inProgress,
-      priority: old.priority,
-      categoryId: old.categoryId,
-      attachmentUrls: old.attachmentUrls,
-      createdAt: old.createdAt,
-      updatedAt: DateTime.now(),
-    );
-    _tickets[idx] = updated;
-    return updated;
+    final data = await _supabase
+        .from('tickets')
+        .update({
+          'assigned_to': assigneeId,
+          'status': 'in_progress',
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', id)
+        .select()
+        .single();
+    return TicketModel.fromJson(data);
   }
 
   Future<void> addComment(String ticketId, String content) async {
-    await Future.delayed(const Duration(milliseconds: 400));
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id') ?? '';
+
+    await _supabase.from('comments').insert({
+      'ticket_id': ticketId,
+      'user_id': userId,
+      'content': content,
+    });
+  }
+
+  Future<void> deleteTicket(String id) async {
+    await _supabase.from('tickets').delete().eq('id', id);
+  }
+
+  /// Mengambil statistik jumlah tiket berdasarkan status.
+  ///
+  /// - Untuk role `user`: hanya menghitung tiket milik user sendiri
+  ///   (dibatasi oleh RLS policy "Users can view own tickets").
+  /// - Untuk role `helpdesk`: hanya menghitung tiket yang DI-ASSIGN
+  ///   ke dirinya sendiri (sesuai SRS FR-006: helpdesk hanya
+  ///   menangani tiket yang ditugaskan).
+  /// - Untuk role `admin`: menghitung SEMUA tiket (diizinkan oleh
+  ///   RLS policy "Helpdesk and admin can view all tickets").
+  Future<Map<String, int>> getTicketStats() async {
+    final prefs = await SharedPreferences.getInstance();
+    final role = prefs.getString('user_role') ?? 'user';
+    final userId = prefs.getString('user_id') ?? '';
+
+    var query = _supabase.from('tickets').select('status');
+
+    if (role == 'helpdesk') {
+      query = query.eq('assigned_to', userId);
+    }
+
+    final data = await query;
+    final rows = data as List;
+
+    int total = rows.length;
+    int open = 0, inProgress = 0, resolved = 0, closed = 0;
+
+    for (final row in rows) {
+      switch (row['status']) {
+        case 'open':
+          open++;
+          break;
+        case 'in_progress':
+          inProgress++;
+          break;
+        case 'resolved':
+          resolved++;
+          break;
+        case 'closed':
+          closed++;
+          break;
+      }
+    }
+
+    return {
+      'total': total,
+      'open': open,
+      'in_progress': inProgress,
+      'resolved': resolved,
+      'closed': closed,
+    };
   }
 }

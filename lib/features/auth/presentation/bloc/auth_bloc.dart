@@ -23,6 +23,12 @@ class ResetPasswordRequested extends AuthEvent {
   final String email;
   ResetPasswordRequested(this.email);
 }
+class GetProfileRequested extends AuthEvent {}
+class UpdatePasswordRequested extends AuthEvent {
+  final String newPassword;
+  UpdatePasswordRequested(this.newPassword);
+  @override List<Object?> get props => [newPassword];
+}
 
 // States
 abstract class AuthState extends Equatable {
@@ -42,6 +48,7 @@ class AuthError extends AuthState {
   @override List<Object?> get props => [message];
 }
 class AuthPasswordResetSent extends AuthState {}
+class AuthPasswordUpdated extends AuthState {}
 
 // Bloc
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
@@ -51,6 +58,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<RegisterRequested>(_onRegister);
     on<LogoutRequested>(_onLogout);
     on<ResetPasswordRequested>(_onResetPassword);
+    on<GetProfileRequested>(_onGetProfile);
+    on<UpdatePasswordRequested>(_onUpdatePassword);
   }
 
   Future<void> _onLogin(LoginRequested e, Emitter<AuthState> emit) async {
@@ -67,7 +76,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
     try {
       await _repo.register(name: e.name, email: e.email, password: e.password);
-      emit(AuthUnauthenticated()); // arahkan ke login
+      emit(AuthUnauthenticated());
     } catch (ex) {
       emit(AuthError(ex.toString()));
     }
@@ -83,6 +92,28 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       await _repo.resetPassword(e.email);
       emit(AuthPasswordResetSent());
+    } catch (ex) {
+      emit(AuthError(ex.toString()));
+    }
+  }
+
+  Future<void> _onGetProfile(GetProfileRequested e, Emitter<AuthState> emit) async {
+    try {
+      final user = await _repo.getProfile();
+      emit(AuthAuthenticated(user));
+    } catch (ex) {
+      // Diam saja jika gagal refresh profil — state lama tetap dipakai
+    }
+  }
+
+  Future<void> _onUpdatePassword(UpdatePasswordRequested e, Emitter<AuthState> emit) async {
+    emit(AuthLoading());
+    try {
+      await _repo.updatePassword(e.newPassword);
+      // Pertahankan state authenticated setelah update password
+      final user = await _repo.getProfile();
+      emit(AuthAuthenticated(user));
+      emit(AuthPasswordUpdated());
     } catch (ex) {
       emit(AuthError(ex.toString()));
     }

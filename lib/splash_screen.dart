@@ -35,6 +35,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token');
+    if (!mounted) return;
     Navigator.pushReplacementNamed(
       context,
       token != null ? '/dashboard' : '/login',
@@ -63,7 +64,7 @@ class _SplashScreenState extends State<SplashScreen>
                   width: 96,
                   height: 96,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
+                    color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(28),
                   ),
                   child: const Icon(
@@ -86,7 +87,7 @@ class _SplashScreenState extends State<SplashScreen>
                 Text(
                   'Sistem Pelaporan IT',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                     fontSize: 14,
                   ),
                 ),

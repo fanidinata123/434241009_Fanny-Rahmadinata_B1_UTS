@@ -6,7 +6,11 @@ import '../bloc/ticket_bloc.dart';
 import '../../../../core/constants/app_colors.dart';
 
 class CreateTicketPage extends StatefulWidget {
-  const CreateTicketPage({super.key});
+  /// Dipanggil setelah tiket berhasil dibuat. Digunakan oleh DashboardPage
+  /// untuk pindah ke tab Dashboard dan refresh statistik/daftar tiket.
+  final VoidCallback? onTicketCreated;
+
+  const CreateTicketPage({super.key, this.onTicketCreated});
 
   @override
   State<CreateTicketPage> createState() => _CreateTicketPageState();
@@ -28,9 +32,15 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
     {'value': 'critical', 'label': 'Kritis',  'color': AppColors.priorityCritical},
   ];
 
-  final _categories = [
-    'Hardware', 'Software', 'Jaringan', 'Akun & Akses', 'Email', 'Lainnya',
-  ];
+  // Map UUID kategori (sesuai data di tabel `categories` Supabase) -> nama tampilan
+  final Map<String, String> _categories = {
+    '2684e455-77c4-499c-9942-c9ea8b61163f': 'Hardware',
+    'fe9e8eba-b4f2-470a-b957-64cf8711c5ff': 'Software',
+    'cf9757b2-5d6b-4f7d-b884-977cb590c3ab': 'Jaringan',
+    'd5b0d228-e1e0-4a47-b85c-8cf9a7498b51': 'Akun & Akses',
+    'bbd3c883-2c14-4e60-b7ef-36a3d29ec2aa': 'Email',
+    '39aac86e-0da9-4030-ab0c-1dcd68cb080b': 'Lainnya',
+  };
 
   @override
   void dispose() {
@@ -117,7 +127,17 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
                 backgroundColor: Colors.green,
               ),
             );
-            Navigator.pop(ctx);
+            // Reset form supaya siap untuk input tiket baru berikutnya
+            _titleCtrl.clear();
+            _descCtrl.clear();
+            setState(() {
+              _selectedPriority = 'low';
+              _selectedCategory = null;
+              _pickedFiles.clear();
+            });
+            // Beri tahu DashboardPage untuk pindah ke tab Dashboard
+            // dan me-refresh statistik/daftar tiket.
+            widget.onTicketCreated?.call();
           } else if (state is TicketError) {
             ScaffoldMessenger.of(ctx).showSnackBar(
               SnackBar(content: Text(state.message), backgroundColor: Colors.red),
@@ -170,8 +190,11 @@ class _CreateTicketPageState extends State<CreateTicketPage> {
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.category_outlined),
                 ),
-                items: _categories
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                items: _categories.entries
+                    .map((e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Text(e.value),
+                        ))
                     .toList(),
                 onChanged: (v) => setState(() => _selectedCategory = v),
               ),

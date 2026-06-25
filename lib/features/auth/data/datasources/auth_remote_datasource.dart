@@ -1,44 +1,44 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 
 class AuthRemoteDataSource {
-  // ── MOCK USERS ──────────────────────────────────────────────
-  static final _mockUsers = [
-    {'id': 'u001', 'name': 'Fanny Rahmadinata',  'email': 'fanny@demo.com',    'password': '12345678', 'role': 'user'},
-    {'id': 'u002', 'name': 'Budi Santoso',        'email': 'budi@demo.com',     'password': '12345678', 'role': 'user'},
-    {'id': 'u003', 'name': 'Siti Nurhaliza',      'email': 'siti@demo.com',     'password': '12345678', 'role': 'user'},
-    {'id': 'u004', 'name': 'Rizky Pratama',       'email': 'rizky@demo.com',    'password': '12345678', 'role': 'helpdesk'},
-    {'id': 'u005', 'name': 'Dewi Anggraini',      'email': 'dewi@demo.com',     'password': '12345678', 'role': 'helpdesk'},
-    {'id': 'u006', 'name': 'Ahmad Fauzi',         'email': 'ahmad@demo.com',    'password': '12345678', 'role': 'admin'},
-  ];
-
-  // Daftar user yang sudah register (bisa bertambah)
-  static final List<Map<String, dynamic>> _registeredUsers =
-      List.from(_mockUsers);
-
-  AuthRemoteDataSource(dynamic dio); // dio tetap ada tapi tidak dipakai saat mock
+  final _supabase = Supabase.instance.client;
 
   Future<Map<String, dynamic>> login(String email, String password) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    final user = _registeredUsers.firstWhere(
-      (u) => u['email'] == email && u['password'] == password,
-      orElse: () => {},
+    final response = await _supabase.auth.signInWithPassword(
+      email: email,
+      password: password,
     );
 
-    if (user.isEmpty) {
-      throw Exception('Email atau password salah');
+    if (response.user == null) throw Exception('Login gagal');
+
+    // Ambil data user dari tabel users
+    final userData = await _supabase
+        .from('users')
+        .select()
+        .eq('email', email)
+        .single();
+
+    // Cek status aktif akun. Jika sudah dinonaktifkan oleh admin,
+    // tolak login dan langsung sign-out dari sesi Supabase Auth
+    // yang baru saja terbentuk (supaya tidak ada sesi "menggantung").
+    final isActive = userData['is_active'] as bool? ?? true;
+    if (!isActive) {
+      await _supabase.auth.signOut();
+      throw Exception(
+        'Akun Anda telah dinonaktifkan oleh admin. Hubungi administrator untuk informasi lebih lanjut.',
+      );
     }
 
-    const mockToken = 'mock-jwt-token-helpdesk-2026';
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', mockToken);
-    await prefs.setString('user_id',   user['id']!);
-    await prefs.setString('user_name', user['name']!);
-    await prefs.setString('user_email',user['email']!);
-    await prefs.setString('user_role', user['role']!);
+    await prefs.setString('auth_token', response.session?.accessToken ?? '');
+    await prefs.setString('user_id', userData['id']);
+    await prefs.setString('user_name', userData['name']);
+    await prefs.setString('user_email', userData['email']);
+    await prefs.setString('user_role', userData['role']);
 
-    return {'token': mockToken, 'user': user};
+    return {'token': response.session?.accessToken, 'user': userData};
   }
 
   Future<UserModel> register({
@@ -46,46 +46,61 @@ class AuthRemoteDataSource {
     required String email,
     required String password,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 800));
+    final response = await _supabase.auth.signUp(
+      email: email,
+      password: password,
+      data: {
+        'name': name,
+        'full_name': name,
+      },
+    );
 
-    final exists = _registeredUsers.any((u) => u['email'] == email);
-    if (exists) throw Exception('Email sudah terdaftar');
+    if (response.user == null) throw Exception('Registrasi gagal');
 
-    final newUser = {
-      'id':       'u${DateTime.now().millisecondsSinceEpoch}',
-      'name':     name,
-      'email':    email,
-      'password': password,
-      'role':     'user',
-    };
-    _registeredUsers.add(newUser);
-    return UserModel.fromJson(newUser);
+    // Jika trigger belum sempat jalan, insert manual sebagai fallback
+    try {
+      await _supabase.from('users').insert({
+        'id': response.user!.id,
+        'name': name,
+        'email': email,
+        'password_hash': '-',
+        'role': 'user',
+        'is_active': true,
+      });
+    } catch (_) {
+      // Abaikan jika sudah ada (trigger sudah insert duluan)
+    }
+
+    return UserModel.fromJson({
+      'id': response.user!.id,
+      'name': name,
+      'email': email,
+      'role': 'user',
+    });
   }
 
   Future<void> logout() async {
-    await Future.delayed(const Duration(milliseconds: 300));
+    await _supabase.auth.signOut();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
-    await prefs.remove('user_id');
-    await prefs.remove('user_name');
-    await prefs.remove('user_email');
-    await prefs.remove('user_role');
+    await prefs.clear();
   }
 
   Future<void> resetPassword(String email) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    final exists = _registeredUsers.any((u) => u['email'] == email);
-    if (!exists) throw Exception('Email tidak ditemukan');
-    // Mock: pura-pura kirim email
+    await _supabase.auth.resetPasswordForEmail(email);
+  }
+
+  Future<void> updatePassword(String newPassword) async {
+    await _supabase.auth.updateUser(
+      UserAttributes(password: newPassword),
+    );
   }
 
   Future<UserModel> getProfile() async {
-    await Future.delayed(const Duration(milliseconds: 300));
     final prefs = await SharedPreferences.getInstance();
     return UserModel.fromJson({
-      'id':    prefs.getString('user_id')    ?? 'u001',
-      'name':  prefs.getString('user_name')  ?? 'User Demo',
-      'email': prefs.getString('user_email') ?? 'user@demo.com',
+      'id':    prefs.getString('user_id')    ?? '',
+      'name':  prefs.getString('user_name')  ?? '',
+      'email': prefs.getString('user_email') ?? '',
       'role':  prefs.getString('user_role')  ?? 'user',
     });
   }

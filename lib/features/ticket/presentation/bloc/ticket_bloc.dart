@@ -8,8 +8,8 @@ abstract class TicketEvent extends Equatable {
   @override List<Object?> get props => [];
 }
 class LoadTickets extends TicketEvent {
-  final String? statusFilter, search;
-  LoadTickets({this.statusFilter, this.search});
+  final String? statusFilter, search, assignedTo;
+  LoadTickets({this.statusFilter, this.search, this.assignedTo});
 }
 class LoadTicketDetail extends TicketEvent {
   final String id;
@@ -39,6 +39,11 @@ class AddComment extends TicketEvent {
   final String ticketId, content;
   AddComment(this.ticketId, this.content);
 }
+class LoadTicketStats extends TicketEvent {}
+class DeleteTicket extends TicketEvent {
+  final String id;
+  DeleteTicket(this.id);
+}
 
 // States
 abstract class TicketState extends Equatable {
@@ -66,6 +71,18 @@ class TicketError extends TicketState {
   TicketError(this.message);
   @override List<Object?> get props => [message];
 }
+class TicketStatsLoading extends TicketState {}
+class TicketStatsLoaded extends TicketState {
+  final Map<String, int> stats;
+  TicketStatsLoaded(this.stats);
+  @override List<Object?> get props => [stats];
+}
+class TicketStatsError extends TicketState {
+  final String message;
+  TicketStatsError(this.message);
+  @override List<Object?> get props => [message];
+}
+class TicketDeleted extends TicketState {}
 
 // Bloc
 class TicketBloc extends Bloc<TicketEvent, TicketState> {
@@ -78,6 +95,8 @@ class TicketBloc extends Bloc<TicketEvent, TicketState> {
     on<UpdateTicketStatus>(_onUpdateStatus);
     on<AssignTicket>(_onAssign);
     on<AddComment>(_onAddComment);
+    on<LoadTicketStats>(_onLoadStats);
+    on<DeleteTicket>(_onDeleteTicket);
   }
 
   Future<void> _onLoadTickets(LoadTickets e, Emitter<TicketState> emit) async {
@@ -86,6 +105,7 @@ class TicketBloc extends Bloc<TicketEvent, TicketState> {
       final tickets = await _repo.getTickets(
         status: e.statusFilter,
         search: e.search,
+        assignedTo: e.assignedTo,
       );
       emit(TicketListLoaded(tickets));
     } catch (ex) {
@@ -141,6 +161,25 @@ class TicketBloc extends Bloc<TicketEvent, TicketState> {
     try {
       await _repo.addComment(e.ticketId, e.content);
       add(LoadTicketDetail(e.ticketId)); // refresh detail
+    } catch (ex) {
+      emit(TicketError(ex.toString()));
+    }
+  }
+
+  Future<void> _onLoadStats(LoadTicketStats e, Emitter<TicketState> emit) async {
+    emit(TicketStatsLoading());
+    try {
+      final stats = await _repo.getTicketStats();
+      emit(TicketStatsLoaded(stats));
+    } catch (ex) {
+      emit(TicketStatsError(ex.toString()));
+    }
+  }
+
+  Future<void> _onDeleteTicket(DeleteTicket e, Emitter<TicketState> emit) async {
+    try {
+      await _repo.deleteTicket(e.id);
+      emit(TicketDeleted());
     } catch (ex) {
       emit(TicketError(ex.toString()));
     }
