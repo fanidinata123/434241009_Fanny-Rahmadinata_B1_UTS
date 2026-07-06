@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import '../bloc/ticket_bloc.dart';
 import '../../domain/entities/ticket_entity.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -20,8 +20,6 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
   final _commentCtrl = TextEditingController();
   final _supabase = Supabase.instance.client;
 
-  // Komentar diambil dari tabel `comments`, di-join dengan `users`
-  // untuk mendapatkan nama dan role pengirim.
   List<Map<String, dynamic>> _comments = [];
   bool _loadingComments = true;
   String? _commentsError;
@@ -44,7 +42,6 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
       _loadingComments = true;
       _commentsError = null;
     });
-
     try {
       final data = await _supabase
           .from('comments')
@@ -53,7 +50,6 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
           .order('created_at', ascending: true);
 
       final rows = List<Map<String, dynamic>>.from(data as List);
-
       setState(() {
         _comments = rows.map((row) {
           final user = row['users'] as Map<String, dynamic>?;
@@ -81,14 +77,126 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
   void _sendComment() {
     final text = _commentCtrl.text.trim();
     if (text.isEmpty) return;
-
     _commentCtrl.clear();
     context.read<TicketBloc>().add(AddComment(widget.ticketId, text));
   }
 
+  // Assign dialog — ambil helpdesk asli dari Supabase
+  Future<void> _showAssignDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    List<Map<String, dynamic>> helpdesks = [];
+    String? error;
+    try {
+      final data = await _supabase
+          .from('users')
+          .select('id, name')
+          .eq('role', 'helpdesk')
+          .eq('is_active', true)
+          .order('name');
+      helpdesks = List<Map<String, dynamic>>.from(data as List);
+    } catch (e) {
+      error = e.toString();
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal memuat daftar helpdesk: $error')),
+      );
+      return;
+    }
+    if (helpdesks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Belum ada helpdesk yang tersedia')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Assign ke Helpdesk'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: helpdesks.map((h) {
+            final name = h['name'] as String? ?? 'Helpdesk';
+            final id = h['id'] as String;
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor:
+                    AppColors.secondary.withValues(alpha: 0.15),
+                child: Text(
+                  name.isNotEmpty ? name.substring(0, 1) : '?',
+                  style: TextStyle(color: AppColors.secondary),
+                ),
+              ),
+              title: Text(name),
+              subtitle: const Text('Helpdesk'),
+              onTap: () {
+                Navigator.pop(context);
+                // Assign tiket → status otomatis berubah in_progress
+                context
+                    .read<TicketBloc>()
+                    .add(AssignTicket(widget.ticketId, id));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        'Tiket di-assign ke $name, status berubah menjadi Diproses'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // Tombol Selesai — khusus helpdesk, ubah status ke closed
+  Future<void> _confirmFinish() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Tandai Selesai?'),
+        content: const Text(
+          'Apakah tiket ini sudah selesai ditangani? Status akan berubah menjadi "Ditutup" dan tidak dapat diubah kembali.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.statusResolved),
+            child: const Text('Ya, Selesai'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      context
+          .read<TicketBloc>()
+          .add(UpdateTicketStatus(widget.ticketId, 'closed'));
+    }
+  }
+
+  // Hapus tiket — khusus admin
   Future<void> _confirmDelete() async {
     final state = context.read<TicketBloc>().state;
-    final title = state is TicketDetailLoaded ? state.ticket.title : 'tiket ini';
+    final title =
+        state is TicketDetailLoaded ? state.ticket.title : 'tiket ini';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -116,142 +224,21 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
     }
   }
 
-  void _showStatusDialog(TicketEntity ticket) {
-    final statusOptions = [
-      {'value': 'open',       'label': 'Dibuka',   'color': AppColors.statusOpen},
-      {'value': 'inProgress', 'label': 'Diproses', 'color': AppColors.statusInProgress},
-      {'value': 'resolved',   'label': 'Selesai',  'color': AppColors.statusResolved},
-      {'value': 'closed',     'label': 'Ditutup',  'color': AppColors.statusClosed},
-    ];
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Ubah Status Tiket'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: statusOptions.map((s) {
-            final isSelected = ticket.status.name == s['value'];
-            final color = s['color'] as Color;
-            return ListTile(
-              leading: CircleAvatar(
-                radius: 8,
-                backgroundColor: color,
-              ),
-              title: Text(s['label'] as String),
-              trailing: isSelected
-                  ? Icon(Icons.check, color: color)
-                  : null,
-              tileColor: isSelected ? color.withValues(alpha: 0.08) : null,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
-              onTap: () {
-                Navigator.pop(context);
-                context.read<TicketBloc>().add(
-                      UpdateTicketStatus(widget.ticketId, s['value'] as String),
-                    );
-              },
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showAssignDialog() async {
-    // Tampilkan loading sementara fetch daftar helpdesk
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    List<Map<String, dynamic>> helpdesks = [];
-    String? error;
-
-    try {
-      final data = await _supabase
-          .from('users')
-          .select('id, name')
-          .eq('role', 'helpdesk')
-          .eq('is_active', true)
-          .order('name');
-      helpdesks = List<Map<String, dynamic>>.from(data as List);
-    } catch (e) {
-      error = e.toString();
-    }
-
-    if (!mounted) return;
-    Navigator.pop(context); // tutup loading dialog
-
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal memuat daftar helpdesk: $error')),
-      );
-      return;
-    }
-
-    if (helpdesks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Belum ada helpdesk yang tersedia')),
-      );
-      return;
-    }
-
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Assign ke Helpdesk'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: helpdesks.map((h) {
-            final name = h['name'] as String? ?? 'Helpdesk';
-            final id = h['id'] as String;
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: AppColors.secondary.withValues(alpha: 0.15),
-                child: Text(
-                  name.isNotEmpty ? name.substring(0, 1) : '?',
-                  style: TextStyle(color: AppColors.secondary),
-                ),
-              ),
-              title: Text(name),
-              subtitle: const Text('Helpdesk'),
-              onTap: () {
-                Navigator.pop(context);
-                context.read<TicketBloc>().add(
-                      AssignTicket(widget.ticketId, id),
-                    );
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Tiket di-assign ke $name'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              },
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
   Color _statusColor(TicketStatus s) {
     switch (s) {
-      case TicketStatus.open:       return AppColors.statusOpen;
-      case TicketStatus.inProgress: return AppColors.statusInProgress;
-      case TicketStatus.resolved:   return AppColors.statusResolved;
-      case TicketStatus.closed:     return AppColors.statusClosed;
+      case TicketStatus.open:        return AppColors.statusOpen;
+      case TicketStatus.inProgress:  return AppColors.statusInProgress;
+      case TicketStatus.resolved:    return AppColors.statusResolved;
+      case TicketStatus.closed:      return AppColors.statusClosed;
     }
   }
 
   Color _priorityColor(TicketPriority p) {
     switch (p) {
-      case TicketPriority.low:      return AppColors.priorityLow;
-      case TicketPriority.medium:   return AppColors.priorityMedium;
-      case TicketPriority.high:     return AppColors.priorityHigh;
-      case TicketPriority.critical: return AppColors.priorityCritical;
+      case TicketPriority.low:       return AppColors.priorityLow;
+      case TicketPriority.medium:    return AppColors.priorityMedium;
+      case TicketPriority.high:      return AppColors.priorityHigh;
+      case TicketPriority.critical:  return AppColors.priorityCritical;
     }
   }
 
@@ -259,16 +246,17 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final authState = context.watch<AuthBloc>().state;
-    final isHelpdesk =
-        authState is AuthAuthenticated && authState.user.isHelpdesk;
-    final isAdmin =
-        authState is AuthAuthenticated && authState.user.isAdmin;
+    final isHelpdesk = authState is AuthAuthenticated &&
+        authState.user.isHelpdesk;
+    final isAdmin  = authState is AuthAuthenticated && authState.user.isAdmin;
+    // Helpdesk murni = bukan admin (hanya role helpdesk)
+    final isHelpdeskOnly = isHelpdesk && !isAdmin;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detail Tiket'),
         actions: [
-          // Tombol Tracking untuk semua user
+          // Tracking — semua role
           IconButton(
             icon: const Icon(Icons.timeline_outlined),
             tooltip: 'Tracking',
@@ -288,19 +276,7 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
               );
             },
           ),
-          // Tombol edit status untuk helpdesk/admin
-          if (isHelpdesk)
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'Ubah Status',
-              onPressed: () {
-                final state = context.read<TicketBloc>().state;
-                if (state is TicketDetailLoaded) {
-                  _showStatusDialog(state.ticket);
-                }
-              },
-            ),
-          // Tombol hapus tiket khusus admin
+          // Hapus — khusus admin
           if (isAdmin)
             IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -328,9 +304,6 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
             );
             Navigator.pop(ctx);
           } else if (state is TicketDetailLoaded) {
-            // Setelah komentar dikirim, TicketBloc memicu reload detail
-            // tiket (LoadTicketDetail). Manfaatkan momen ini untuk
-            // sekaligus refresh daftar komentar dari Supabase.
             _loadComments();
           }
         },
@@ -343,6 +316,9 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
           }
           if (state is TicketDetailLoaded) {
             final t = state.ticket;
+            final isClosed = t.status == TicketStatus.closed;
+            final isInProgress = t.status == TicketStatus.inProgress;
+
             return Column(
               children: [
                 Expanded(
@@ -358,8 +334,8 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
                             children: [
                               Text(
                                 t.title,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold),
+                                style: theme.textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 10),
                               Row(
@@ -384,16 +360,15 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
                               const SizedBox(height: 12),
                               Row(
                                 children: [
-                                  Icon(
-                                    Icons.calendar_today_outlined,
-                                    size: 14,
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(alpha: 0.5),
-                                  ),
+                                  Icon(Icons.calendar_today_outlined,
+                                      size: 14,
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.5)),
                                   const SizedBox(width: 4),
                                   Text(
                                     'Dibuat: ${DateFormatter.format(t.createdAt)}',
-                                    style: theme.textTheme.bodySmall?.copyWith(
+                                    style:
+                                        theme.textTheme.bodySmall?.copyWith(
                                       color: theme.colorScheme.onSurface
                                           .withValues(alpha: 0.5),
                                     ),
@@ -405,9 +380,10 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
                         ),
                       ),
 
-                      // Assign tiket (helpdesk/admin)
-                      if (isHelpdesk) ...[
-                        const SizedBox(height: 12),
+                      const SizedBox(height: 12),
+
+                      // Tombol Assign — admin/helpdesk, tiket belum closed
+                      if (isHelpdesk && !isClosed)
                         OutlinedButton.icon(
                           icon: const Icon(Icons.assignment_ind_outlined),
                           label: Text(t.assignedTo == null
@@ -415,21 +391,65 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
                               : 'Reassign Tiket'),
                           onPressed: _showAssignDialog,
                         ),
+
+                      // Tombol Selesai — khusus helpdesk (bukan admin),
+                      // hanya muncul saat status in_progress
+                      if (isHelpdeskOnly && isInProgress) ...[
+                        const SizedBox(height: 8),
+                        FilledButton.icon(
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('Selesai / Finish'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.statusResolved,
+                            minimumSize: const Size(double.infinity, 48),
+                          ),
+                          onPressed: _confirmFinish,
+                        ),
+                      ],
+
+                      // Info jika tiket sudah ditutup
+                      if (isClosed) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.statusClosed.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: AppColors.statusClosed.withValues(alpha: 0.4),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.lock_outline,
+                                  color: AppColors.statusClosed, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Tiket ini sudah ditutup',
+                                style: TextStyle(
+                                  color: AppColors.statusClosed,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
 
                       const SizedBox(height: 20),
+
+                      // Komentar
                       Row(
                         children: [
                           Text(
                             'Komentar (${_comments.length})',
-                            style: theme.textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.bold),
+                            style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold),
                           ),
                           if (_loadingComments) ...[
                             const SizedBox(width: 8),
                             const SizedBox(
-                              width: 14,
-                              height: 14,
+                              width: 14, height: 14,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           ],
@@ -470,20 +490,18 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
                   ),
                 ),
 
-                // Input komentar
+                // Input komentar (nonaktif jika tiket sudah closed)
                 Container(
                   padding: EdgeInsets.fromLTRB(
-                    16,
-                    8,
-                    16,
+                    16, 8, 16,
                     MediaQuery.of(context).viewInsets.bottom + 8,
                   ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.surface,
                     border: Border(
                       top: BorderSide(
-                        color:
-                            theme.colorScheme.outline.withValues(alpha: 0.2),
+                        color: theme.colorScheme.outline
+                            .withValues(alpha: 0.2),
                       ),
                     ),
                   ),
@@ -492,18 +510,21 @@ class _TicketDetailPageState extends State<TicketDetailPage> {
                       Expanded(
                         child: TextField(
                           controller: _commentCtrl,
+                          enabled: !isClosed,
                           minLines: 1,
                           maxLines: 4,
-                          decoration: const InputDecoration(
-                            hintText: 'Tulis komentar...',
-                            contentPadding: EdgeInsets.symmetric(
+                          decoration: InputDecoration(
+                            hintText: isClosed
+                                ? 'Tiket sudah ditutup'
+                                : 'Tulis komentar...',
+                            contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 14, vertical: 10),
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       IconButton.filled(
-                        onPressed: _sendComment,
+                        onPressed: isClosed ? null : _sendComment,
                         icon: const Icon(Icons.send_rounded),
                       ),
                     ],
@@ -526,8 +547,7 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(20),
@@ -536,10 +556,7 @@ class _Badge extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: color,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
+              color: color, fontSize: 12, fontWeight: FontWeight.w500),
         ),
       );
 }
@@ -572,8 +589,7 @@ class _CommentBubble extends StatelessWidget {
             child: Text(
               name.isNotEmpty ? name.substring(0, 1) : '?',
               style: TextStyle(
-                color:
-                    isHelpdesk ? AppColors.secondary : AppColors.primary,
+                color: isHelpdesk ? AppColors.secondary : AppColors.primary,
                 fontWeight: FontWeight.bold,
                 fontSize: 12,
               ),
@@ -586,11 +602,9 @@ class _CommentBubble extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(
-                      name,
-                      style: theme.textTheme.labelMedium
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
+                    Text(name,
+                        style: theme.textTheme.labelMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
                     if (isHelpdesk) ...[
                       const SizedBox(width: 6),
                       Container(
@@ -600,21 +614,17 @@ class _CommentBubble extends StatelessWidget {
                           color: AppColors.secondary.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text(
-                          roleLabel,
-                          style: TextStyle(
-                              color: AppColors.secondary, fontSize: 10),
-                        ),
+                        child: Text(roleLabel,
+                            style: TextStyle(
+                                color: AppColors.secondary, fontSize: 10)),
                       ),
                     ],
                     const Spacer(),
-                    Text(
-                      time,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.4),
-                      ),
-                    ),
+                    Text(time,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.4),
+                        )),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -624,10 +634,7 @@ class _CommentBubble extends StatelessWidget {
                     color: theme.colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(
-                    content,
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  child: Text(content, style: theme.textTheme.bodyMedium),
                 ),
               ],
             ),

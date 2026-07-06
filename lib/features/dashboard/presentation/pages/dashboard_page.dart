@@ -20,10 +20,6 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   int _currentIndex = 0;
-
-  // Key unik untuk NotificationPage. Diganti setiap kali tab Notifikasi
-  // dipilih, sehingga widget di-rebuild dari awal (initState terpanggil
-  // lagi) dan data notifikasi ter-refresh otomatis.
   Key _notifKey = UniqueKey();
 
   @override
@@ -52,8 +48,6 @@ class _DashboardPageState extends State<DashboardPage> {
       const ProfilePage(),
     ];
 
-    // Index tab Notifikasi sekarang selalu di posisi ke-3, karena
-    // tab "Buat Tiket" muncul untuk semua role (user, helpdesk, admin).
     const notifIndex = 3;
 
     return Scaffold(
@@ -64,7 +58,6 @@ class _DashboardPageState extends State<DashboardPage> {
           setState(() {
             _currentIndex = i;
             if (i == notifIndex) {
-              // Refresh notifikasi setiap kali tab ini dibuka
               _notifKey = UniqueKey();
             }
           });
@@ -72,28 +65,28 @@ class _DashboardPageState extends State<DashboardPage> {
             context.read<TicketBloc>().add(LoadTicketStats());
           }
         },
-        destinations: [
-          const NavigationDestination(
+        destinations: const [
+          NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
             label: 'Dashboard',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.confirmation_number_outlined),
             selectedIcon: Icon(Icons.confirmation_number),
             label: 'Tiket',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.add_circle_outline),
             selectedIcon: Icon(Icons.add_circle),
             label: 'Buat Tiket',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.notifications_outlined),
             selectedIcon: Icon(Icons.notifications),
             label: 'Notifikasi',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
             label: 'Profil',
@@ -239,78 +232,78 @@ class _HomeContent extends StatelessWidget {
                               ),
                             ],
                           ),
+
+                          // Bar Chart
+                          const SizedBox(height: 16),
+                          _TicketBarChart(stats: stats),
+
+                          // Tombol aksi untuk helpdesk/admin (tanpa judul)
+                          if (isHelpdesk) ...[
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                // Assign Tiket — khusus admin
+                                if (isAdmin) ...[
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      icon: const Icon(Icons.assignment_ind_outlined),
+                                      label: const Text('Assign Tiket'),
+                                      onPressed: () => showDialog(
+                                        context: context,
+                                        builder: (_) => AlertDialog(
+                                          title: const Text('Assign Tiket'),
+                                          content: const Text(
+                                              'Buka Daftar Tiket, pilih tiket yang ingin di-assign, lalu tap untuk assign ke helpdesk.'),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context),
+                                              child: const Text('Mengerti'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
+                                // Riwayat — admin & helpdesk
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    icon: const Icon(Icons.history),
+                                    label: const Text('Riwayat'),
+                                    onPressed: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => const RiwayatPage(),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Kelola Pengguna — khusus admin
+                            if (isAdmin) ...[
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  icon: const Icon(Icons.people_outline),
+                                  label: const Text('Kelola Pengguna'),
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const ManageUsersPage(),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ],
                       );
                     },
                   ),
-
-                  // Aksi cepat untuk helpdesk/admin
-                  if (isHelpdesk) ...[
-                    const SizedBox(height: 20),
-                    Text(
-                      'Aksi Cepat (Admin/Helpdesk)',
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.assignment_ind_outlined),
-                            label: const Text('Assign Tiket'),
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (_) => AlertDialog(
-                                  title: const Text('Assign Tiket'),
-                                  content: const Text(
-                                      'Pilih tiket dari Daftar Tiket lalu tap tiket untuk mengubah status atau assign ke helpdesk.'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text('Mengerti'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.history),
-                            label: const Text('Riwayat'),
-                            onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const RiwayatPage(),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // Tombol Kelola Pengguna hanya untuk admin
-                    if (isAdmin) ...[
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.people_outline),
-                          label: const Text('Kelola Pengguna'),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const ManageUsersPage(),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
                   const SizedBox(height: 40),
                 ]),
               ),
@@ -415,4 +408,119 @@ class _StatusCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Bar Chart Widget ─────────────────────────────────────────────────
+class _TicketBarChart extends StatelessWidget {
+  final Map<String, int> stats;
+
+  const _TicketBarChart({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final total = stats['total'] ?? 0;
+
+    final bars = [
+      _BarData('Dibuka',   stats['open'] ?? 0,        AppColors.statusOpen),
+      _BarData('Diproses', stats['in_progress'] ?? 0, AppColors.statusInProgress),
+      _BarData('Selesai',  stats['resolved'] ?? 0,    AppColors.statusResolved),
+      _BarData('Ditutup',  stats['closed'] ?? 0,      AppColors.statusClosed),
+    ];
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Grafik Statistik Tiket',
+              style: theme.textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: bars.map((bar) {
+                final pct = total == 0 ? 0.0 : bar.value / total;
+                final maxH = 120.0;
+                final barH = (pct * maxH).clamp(4.0, maxH);
+
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Column(
+                      children: [
+                        // Nilai
+                        Text(
+                          '${bar.value}',
+                          style: TextStyle(
+                            color: bar.color,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        // Bar
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 600),
+                          curve: Curves.easeOut,
+                          height: barH,
+                          decoration: BoxDecoration(
+                            color: bar.color,
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(6),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        // Label
+                        Text(
+                          bar.label,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 10,
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            // Persentase kecil di bawah
+            Row(
+              children: bars.map((bar) {
+                final pct = total == 0
+                    ? 0
+                    : ((bar.value / total) * 100).round();
+                return Expanded(
+                  child: Text(
+                    '$pct%',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: bar.color,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BarData {
+  final String label;
+  final int value;
+  final Color color;
+  const _BarData(this.label, this.value, this.color);
 }
